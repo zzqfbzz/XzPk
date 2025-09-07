@@ -216,12 +216,23 @@ public class slimepk {
     }
 
     public static void main(String[] args) {
+
+        // 种子 无论你的种子长啥样都要保留最后一个L的存在
         long seed = 2950649267509295309L;
+
+        // 计算的区域 如下就算8*8
         int areaSize = 8;
 
+        // x轴的区块坐标最小值
         int xMin = -100;
+
+        // x轴的区块坐标最大值
         int xMax = 100;
+
+        // z轴的区块坐标最小值
         int zMin = -100;
+
+        // z轴的区块坐标最大值
         int zMax = 100;
 
         if (args.length >= 4) {

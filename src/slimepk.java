@@ -1,6 +1,5 @@
 import java.util.Random;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -8,17 +7,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class slimepk {
 
     static class ChunkInfo {
-        int chunkX;     // 区块坐标X
-        int chunkZ;     // 区块坐标Z
-        int worldX;     // 世界坐标X（区块中心）
-        int worldZ;     // 世界坐标Z（区块中心）
-        int slimeCount; // 史莱姆数量
-        int areaSize;   // 区域大小
+        int chunkX;
+        int chunkZ;
+        int worldX;
+        int worldZ;
+        int slimeCount;
+        int areaSize;
 
         ChunkInfo(int chunkX, int chunkZ, int slimeCount, int areaSize) {
             this.chunkX = chunkX;
             this.chunkZ = chunkZ;
-            this.worldX = chunkX * 16 + 8;  // 区块中心坐标
+            this.worldX = chunkX * 16 + 8;
             this.worldZ = chunkZ * 16 + 8;
             this.slimeCount = slimeCount;
             this.areaSize = areaSize;
@@ -33,11 +32,9 @@ public class slimepk {
         }
     }
 
-    // 最多的50个区块（使用最小堆，堆顶是最小的）
     static PriorityBlockingQueue<ChunkInfo> topChunks = new PriorityBlockingQueue<>(50,
             (a, b) -> Integer.compare(a.slimeCount, b.slimeCount));
 
-    // 最少的50个区块（使用最大堆，堆顶是最大的）
     static PriorityBlockingQueue<ChunkInfo> bottomChunks = new PriorityBlockingQueue<>(50,
             (a, b) -> Integer.compare(b.slimeCount, a.slimeCount));
 
@@ -45,20 +42,13 @@ public class slimepk {
     static int totalAreas = 0;
     static long startTime = 0;
 
-    public static int[] chunkToWorld(int chunkX, int chunkZ) {
-        return new int[]{chunkX * 16 + 8, chunkZ * 16 + 8};
-    }
-
-    public static int[] worldToChunk(int worldX, int worldZ) {
-        return new int[]{worldX >> 4, worldZ >> 4};
-    }
-
     public static boolean isSlimeChunk(int chunkX, int chunkZ, long seed) {
+        // 修复整数乘法隐式转换问题
         Random rnd = new Random(seed +
-                (long) (chunkX * chunkX * 0x4c1906) +
-                (long) (chunkX * 0x5ac0db) +
-                (long) (chunkZ * chunkZ) * 0x4307a7L +
-                (long) (chunkZ * 0x5f24f) ^ 0x3ad8025fL);
+                (long) chunkX * chunkX * 0x4c1906L +
+                (long) chunkX * 0x5ac0dbL +
+                (long) chunkZ * chunkZ * 0x4307a7L +
+                (long) chunkZ * 0x5f24fL ^ 0x3ad8025fL);
         return rnd.nextInt(10) == 0;
     }
 
@@ -74,13 +64,9 @@ public class slimepk {
         return count;
     }
 
-    /**
-     * 线程安全的更新最多和最少的区块列表
-     */
     public static synchronized void updateChunkLists(int chunkX, int chunkZ, int slimeCount, int areaSize) {
         ChunkInfo newChunk = new ChunkInfo(chunkX, chunkZ, slimeCount, areaSize);
 
-        // 更新最多的50个区块
         if (topChunks.size() < 50) {
             topChunks.offer(newChunk);
         } else if (slimeCount > topChunks.peek().slimeCount) {
@@ -88,7 +74,6 @@ public class slimepk {
             topChunks.offer(newChunk);
         }
 
-        // 更新最少的50个区块
         if (bottomChunks.size() < 50) {
             bottomChunks.offer(newChunk);
         } else if (slimeCount < bottomChunks.peek().slimeCount) {
@@ -122,7 +107,7 @@ public class slimepk {
         long seconds = millis / 1000;
         long minutes = seconds / 60;
         seconds = seconds % 60;
-        return minutes > 0 ? String.format("%d分%d秒", minutes, seconds) : String.format("%d秒", seconds);
+        return minutes > 0 ? minutes + "分" + seconds + "秒" : seconds + "秒";
     }
 
     static class CalculationTask implements Runnable {
@@ -152,13 +137,11 @@ public class slimepk {
 
     public static void calculateMultipleAreasParallel(int xMin, int xMax, int zMin, int zMax,
                                                       long seed, int areaSize) {
-        // 计算区域范围
         int startX = (xMin / areaSize) * areaSize;
         int startZ = (zMin / areaSize) * areaSize;
         int endX = ((xMax + areaSize - 1) / areaSize) * areaSize;
         int endZ = ((zMax + areaSize - 1) / areaSize) * areaSize;
 
-        // 计算总区域数
         int areasX = (endX - startX) / areaSize;
         int areasZ = (endZ - startZ) / areaSize;
         totalAreas = areasX * areasZ;
@@ -169,155 +152,93 @@ public class slimepk {
         System.out.println("总共需要计算: " + totalAreas + " 个区域");
         System.out.println("使用多线程并行计算...");
 
-        // 初始化
         topChunks.clear();
         bottomChunks.clear();
         processedCount.set(0);
         startTime = System.currentTimeMillis();
 
-        // 创建线程池
         int processors = Runtime.getRuntime().availableProcessors();
         ExecutorService executor = Executors.newFixedThreadPool(processors * 2);
 
         try {
-            // 提交所有计算任务
             for (int x = startX; x < endX; x += areaSize) {
                 for (int z = startZ; z < endZ; z += areaSize) {
                     executor.submit(new CalculationTask(x, z, seed, areaSize));
                 }
             }
 
-            // 等待所有任务完成
             executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.HOURS);
+            if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
+                System.out.println("计算超时，强制关闭线程池");
+                executor.shutdownNow();
+            }
 
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            System.err.println("计算被中断: " + e.getMessage());
+            Thread.currentThread().interrupt();
+        } finally {
+            if (!executor.isShutdown()) {
+                executor.shutdownNow();
+            }
         }
 
-        // 计算完成
         System.out.println("\n\n计算完成！总共耗时: " + formatTime(System.currentTimeMillis() - startTime));
 
-        // 获取排序后的结果
         List<ChunkInfo> topResults = new ArrayList<>(topChunks);
         List<ChunkInfo> bottomResults = new ArrayList<>(bottomChunks);
-        topResults.sort((a, b) -> b.slimeCount - a.slimeCount); // 降序
-        bottomResults.sort((a, b) -> a.slimeCount - b.slimeCount); // 升序
+        topResults.sort((a, b) -> Integer.compare(b.slimeCount, a.slimeCount));
+        bottomResults.sort((a, b) -> Integer.compare(a.slimeCount, b.slimeCount));
 
-        // 输出最多的50个区块
         System.out.println("\n=== 史莱姆区块数量最多的50个区域 ===");
         for (int i = 0; i < Math.min(50, topResults.size()); i++) {
-            System.out.println((i + 1) + ". " + topResults.get(i).toString());
+            System.out.println((i + 1) + ". " + topResults.get(i));
         }
 
-        // 输出最少的50个区块
         System.out.println("\n=== 史莱姆区块数量最少的50个区域 ===");
         for (int i = 0; i < Math.min(50, bottomResults.size()); i++) {
-            System.out.println((i + 1) + ". " + bottomResults.get(i).toString());
+            System.out.println((i + 1) + ". " + bottomResults.get(i));
         }
 
-        // 输出统计信息
         System.out.println("\n=== 统计信息 ===");
         System.out.println("扫描区域总数: " + totalAreas);
         System.out.println("区域大小: " + areaSize + "x" + areaSize + " 区块");
 
         if (!topResults.isEmpty() && !bottomResults.isEmpty()) {
             int maxPossible = areaSize * areaSize;
-            System.out.println("最多史莱姆区块: " + topResults.get(0).slimeCount + "/" + maxPossible +
-                    " (" + String.format("%.1f", topResults.get(0).slimeCount * 100.0 / maxPossible) + "%)");
-            System.out.println("最少史莱姆区块: " + bottomResults.get(0).slimeCount + "/" + maxPossible +
-                    " (" + String.format("%.1f", bottomResults.get(0).slimeCount * 100.0 / maxPossible) + "%)");
-            System.out.println("平均史莱姆区块: " + String.format("%.1f",
-                    (topResults.get(0).slimeCount + bottomResults.get(0).slimeCount) / 2.0) + "/" + maxPossible);
-        }
+            ChunkInfo topFirst = topResults.get(0);
+            ChunkInfo bottomFirst = bottomResults.get(0);
 
-        // 输出分布统计
-        System.out.println("\n=== 分布统计 ===");
-        int[] distribution = new int[areaSize * areaSize + 1];
-        for (ChunkInfo chunk : topResults) {
-            distribution[chunk.slimeCount]++;
+            System.out.println("最多史莱姆区块: " + topFirst.slimeCount + "/" + maxPossible +
+                    " (" + String.format("%.1f", topFirst.slimeCount * 100.0 / maxPossible) + "%)");
+            System.out.println("最少史莱姆区块: " + bottomFirst.slimeCount + "/" + maxPossible +
+                    " (" + String.format("%.1f", bottomFirst.slimeCount * 100.0 / maxPossible) + "%)");
         }
-        for (ChunkInfo chunk : bottomResults) {
-            distribution[chunk.slimeCount]++;
-        }
-
-        for (int i = 0; i < distribution.length; i++) {
-            if (distribution[i] > 0) {
-                System.out.println("数量 " + i + ": " + distribution[i] + " 个区域");
-            }
-        }
-    }
-
-    public static void printCoordinateInfo(int chunkX, int chunkZ) {
-        int[] worldCoords = chunkToWorld(chunkX, chunkZ);
-        System.out.println("区块坐标: (" + chunkX + ", " + chunkZ + ")");
-        System.out.println("世界坐标: (" + worldCoords[0] + ", " + worldCoords[1] + ")");
-        System.out.println("区块范围: X[" + (chunkX * 16) + " to " + (chunkX * 16 + 15) + "], " +
-                "Z[" + (chunkZ * 16) + " to " + (chunkZ * 16 + 15) + "]");
     }
 
     public static void main(String[] args) {
-
-        //种子 注意后面的L不能删 他不在种子的范围里面，是编码需要
         long seed = 2950649267509295309L;
+        int areaSize = 8;
 
-        // 范围 这里就是17*17
-        int areaSize = 17;
+        int xMin = -100;
+        int xMax = 100;
+        int zMin = -100;
+        int zMax = 100;
 
-        // x轴最小区块坐标
-        int xMin = -650;
-
-        // z轴最小区块坐标
-        int xMax = 650;
-
-        // x轴最大区块坐标
-        int zMin = -650;
-
-        // x轴最大区块坐标
-        int zMax = 650;
-
-        // 解析命令行参数
-        if (args.length >= 1) {
+        if (args.length >= 4) {
             try {
-                if (args[0].equals("-convert")) {
-                    if (args.length >= 3) {
-                        int chunkX = Integer.parseInt(args[1]);
-                        int chunkZ = Integer.parseInt(args[2]);
-                        printCoordinateInfo(chunkX, chunkZ);
-                        return;
-                    } else if (args.length >= 4) {
-                        int worldX = Integer.parseInt(args[1]);
-                        int worldZ = Integer.parseInt(args[2]);
-                        int[] chunkCoords = worldToChunk(worldX, worldZ);
-                        System.out.println("世界坐标: (" + worldX + ", " + worldZ + ")");
-                        System.out.println("区块坐标: (" + chunkCoords[0] + ", " + chunkCoords[1] + ")");
-                        printCoordinateInfo(chunkCoords[0], chunkCoords[1]);
-                        return;
-                    }
-                }
+                xMin = Integer.parseInt(args[0]);
+                xMax = Integer.parseInt(args[1]);
+                zMin = Integer.parseInt(args[2]);
+                zMax = Integer.parseInt(args[3]);
 
+                if (args.length >= 5) {
+                    areaSize = Integer.parseInt(args[4]);
+                }
                 if (args.length >= 6) {
-                    areaSize = Integer.parseInt(args[0]);
-                    xMin = Integer.parseInt(args[1]);
-                    xMax = Integer.parseInt(args[2]);
-                    zMin = Integer.parseInt(args[3]);
-                    zMax = Integer.parseInt(args[4]);
-                    if (args.length >= 6) seed = Long.parseLong(args[5]);
-                } else if (args.length >= 5) {
-                    xMin = Integer.parseInt(args[0]);
-                    xMax = Integer.parseInt(args[1]);
-                    zMin = Integer.parseInt(args[2]);
-                    zMax = Integer.parseInt(args[3]);
-                    if (args.length >= 5) areaSize = Integer.parseInt(args[4]);
-                    if (args.length >= 6) seed = Long.parseLong(args[5]);
-                } else if (args.length >= 4) {
-                    xMin = Integer.parseInt(args[0]);
-                    xMax = Integer.parseInt(args[1]);
-                    zMin = Integer.parseInt(args[2]);
-                    zMax = Integer.parseInt(args[3]);
+                    seed = Long.parseLong(args[5]);
                 }
             } catch (NumberFormatException e) {
-                System.out.println("参数格式错误");
+                System.out.println("参数格式错误，使用默认值");
             }
         }
 

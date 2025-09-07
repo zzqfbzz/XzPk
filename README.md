@@ -1,11 +1,11 @@
 # xzpk
 
 
-## [介绍视频在B站,点击快速前往](https://www.bilibili.com/video/BV1c5411f7WU)  
+## [介绍文章在B站,点击快速前往](https://www.bilibili.com/opus/1109929191230406657)  
 ## 批量计算指定范围内史莱姆区块的数量
 
 
 
 
-## [The introduction video is on Bilibili, click to go quickly](https://www.bilibili.com/video/BV1c5411f7WU)  
+## [Introduction article on Bilibili, click to jump to it](https://www.bilibili.com/opus/1109929191230406657)  
 ## Batch calculate the number of slime blocks within the specified range

@@ -190,12 +190,12 @@ public class slimepk {
         bottomResults.sort((a, b) -> Integer.compare(a.slimeCount, b.slimeCount));
 
         System.out.println("\n=== 史莱姆区块数量最多的50个区域 ===");
-        for (int i = 0; i < Math.min(50, topResults.size()); i++) {
+        for (int i = 0; i < Math.min(10, topResults.size()); i++) {
             System.out.println((i + 1) + ". " + topResults.get(i));
         }
 
         System.out.println("\n=== 史莱姆区块数量最少的50个区域 ===");
-        for (int i = 0; i < Math.min(50, bottomResults.size()); i++) {
+        for (int i = 0; i < Math.min(10, bottomResults.size()); i++) {
             System.out.println((i + 1) + ". " + bottomResults.get(i));
         }
 

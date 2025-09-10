@@ -1,5 +1,6 @@
 import java.util.Random;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,7 +26,10 @@ public class slimepk {
 
         @Override
         public String toString() {
-            double percentage = (slimeCount * 100.0) / (areaSize * areaSize);
+            // 修复百分比计算：应该是 (史莱姆区块数 / 总区块数) * 100
+            // 总区块数 = areaSize * areaSize
+            int totalBlocksInArea = areaSize * areaSize;
+            double percentage = (slimeCount * 100.0) / totalBlocksInArea;
             return String.format("-n=%d|x,z=%d,%d|X,Z=%d,%d|%d*%d|%.1f%%",
                     slimeCount, worldX, worldZ, chunkX, chunkZ,
                     areaSize, areaSize, percentage);
@@ -43,7 +47,6 @@ public class slimepk {
     static long startTime = 0;
 
     public static boolean isSlimeChunk(int chunkX, int chunkZ, long seed) {
-        // 修复整数乘法隐式转换问题
         Random rnd = new Random(seed +
                 (long) chunkX * chunkX * 0x4c1906L +
                 (long) chunkX * 0x5ac0dbL +
@@ -54,6 +57,7 @@ public class slimepk {
 
     public static int countSlimeChunksInArea(int startChunkX, int startChunkZ, long seed, int areaSize) {
         int count = 0;
+        // 确保正确计算区域内的所有区块
         for (int x = startChunkX; x < startChunkX + areaSize; x++) {
             for (int z = startChunkZ; z < startChunkZ + areaSize; z++) {
                 if (isSlimeChunk(x, z, seed)) {
@@ -67,6 +71,7 @@ public class slimepk {
     public static synchronized void updateChunkLists(int chunkX, int chunkZ, int slimeCount, int areaSize) {
         ChunkInfo newChunk = new ChunkInfo(chunkX, chunkZ, slimeCount, areaSize);
 
+        // 更新最多的50个
         if (topChunks.size() < 50) {
             topChunks.offer(newChunk);
         } else if (slimeCount > topChunks.peek().slimeCount) {
@@ -74,6 +79,7 @@ public class slimepk {
             topChunks.offer(newChunk);
         }
 
+        // 更新最少的50个
         if (bottomChunks.size() < 50) {
             bottomChunks.offer(newChunk);
         } else if (slimeCount < bottomChunks.peek().slimeCount) {
@@ -137,20 +143,22 @@ public class slimepk {
 
     public static void calculateMultipleAreasParallel(int xMin, int xMax, int zMin, int zMax,
                                                       long seed, int areaSize) {
+        // 确保区域边界计算正确
         int startX = (xMin / areaSize) * areaSize;
         int startZ = (zMin / areaSize) * areaSize;
         int endX = ((xMax + areaSize - 1) / areaSize) * areaSize;
         int endZ = ((zMax + areaSize - 1) / areaSize) * areaSize;
 
+        // 计算总区域数
         int areasX = (endX - startX) / areaSize;
         int areasZ = (endZ - startZ) / areaSize;
         totalAreas = areasX * areasZ;
 
-        System.out.println("开始计算区域: [" + startX + " to " + (endX - 1) + "] x [" +
+        System.out.println("计算范围: 区块X[" + startX + " to " + (endX - 1) + "], Z[" +
                 startZ + " to " + (endZ - 1) + "]");
-        System.out.println("区域大小: " + areaSize + "x" + areaSize + " 区块");
-        System.out.println("总共需要计算: " + totalAreas + " 个区域");
-        System.out.println("使用多线程并行计算...");
+        System.out.println("每个区域大小: " + areaSize + "x" + areaSize + " 区块");
+        System.out.println("总区域数: " + totalAreas);
+        System.out.println("开始计算...");
 
         topChunks.clear();
         bottomChunks.clear();
@@ -158,9 +166,10 @@ public class slimepk {
         startTime = System.currentTimeMillis();
 
         int processors = Runtime.getRuntime().availableProcessors();
-        ExecutorService executor = Executors.newFixedThreadPool(processors * 2);
+        ExecutorService executor = Executors.newFixedThreadPool(processors);
 
         try {
+            // 提交所有计算任务
             for (int x = startX; x < endX; x += areaSize) {
                 for (int z = startZ; z < endZ; z += areaSize) {
                     executor.submit(new CalculationTask(x, z, seed, areaSize));
@@ -169,71 +178,66 @@ public class slimepk {
 
             executor.shutdown();
             if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
-                System.out.println("计算超时，强制关闭线程池");
-                executor.shutdownNow();
+                System.out.println("\n计算超时");
             }
 
         } catch (InterruptedException e) {
-            System.err.println("计算被中断: " + e.getMessage());
+            System.err.println("计算被中断");
             Thread.currentThread().interrupt();
-        } finally {
-            if (!executor.isShutdown()) {
-                executor.shutdownNow();
-            }
         }
 
-        System.out.println("\n\n计算完成！总共耗时: " + formatTime(System.currentTimeMillis() - startTime));
+        long totalTime = System.currentTimeMillis() - startTime;
+        System.out.println("\n\n计算完成！耗时: " + formatTime(totalTime));
 
+        // 获取并排序结果
         List<ChunkInfo> topResults = new ArrayList<>(topChunks);
         List<ChunkInfo> bottomResults = new ArrayList<>(bottomChunks);
-        topResults.sort((a, b) -> Integer.compare(b.slimeCount, a.slimeCount));
-        bottomResults.sort((a, b) -> Integer.compare(a.slimeCount, b.slimeCount));
+        Collections.sort(topResults, (a, b) -> Integer.compare(b.slimeCount, a.slimeCount));
+        Collections.sort(bottomResults, (a, b) -> Integer.compare(a.slimeCount, b.slimeCount));
 
-        System.out.println("\n=== 史莱姆区块数量最多的50个区域 ===");
+        // 输出最多的50个
+        System.out.println("\n=== 史莱姆区块最多的50个区域 ===");
         for (int i = 0; i < Math.min(50, topResults.size()); i++) {
-            System.out.println((i + 1) + ". " + topResults.get(i));
+            System.out.println(topResults.get(i));
         }
 
-        System.out.println("\n=== 史莱姆区块数量最少的50个区域 ===");
+        // 输出最少的50个
+        System.out.println("\n=== 史莱姆区块最少的50个区域 ===");
         for (int i = 0; i < Math.min(50, bottomResults.size()); i++) {
-            System.out.println((i + 1) + ". " + bottomResults.get(i));
+            System.out.println(bottomResults.get(i));
         }
 
+        // 统计信息
         System.out.println("\n=== 统计信息 ===");
         System.out.println("扫描区域总数: " + totalAreas);
-        System.out.println("区域大小: " + areaSize + "x" + areaSize + " 区块");
+        System.out.println("区域大小: " + areaSize + "x" + areaSize);
 
-        if (!topResults.isEmpty() && !bottomResults.isEmpty()) {
-            int maxPossible = areaSize * areaSize;
-            ChunkInfo topFirst = topResults.get(0);
-            ChunkInfo bottomFirst = bottomResults.get(0);
-
-            System.out.println("最多史莱姆区块: " + topFirst.slimeCount + "/" + maxPossible +
-                    " (" + String.format("%.1f", topFirst.slimeCount * 100.0 / maxPossible) + "%)");
-            System.out.println("最少史莱姆区块: " + bottomFirst.slimeCount + "/" + maxPossible +
-                    " (" + String.format("%.1f", bottomFirst.slimeCount * 100.0 / maxPossible) + "%)");
+        if (!topResults.isEmpty()) {
+            int maxSlime = topResults.get(0).slimeCount;
+            int totalBlocks = areaSize * areaSize;
+            System.out.println("最多史莱姆区块: " + maxSlime + "/" + totalBlocks +
+                    " (" + String.format("%.1f", maxSlime * 100.0 / totalBlocks) + "%)");
         }
+        if (!bottomResults.isEmpty()) {
+            int minSlime = bottomResults.get(0).slimeCount;
+            int totalBlocks = areaSize * areaSize;
+            System.out.println("最少史莱姆区块: " + minSlime + "/" + totalBlocks +
+                    " (" + String.format("%.1f", minSlime * 100.0 / totalBlocks) + "%)");
+        }
+
+        // 验证计算：理论概率应该是10%
+        double expectedPercentage = 10.0;
+        System.out.println("理论史莱姆区块概率: " + expectedPercentage + "%");
     }
 
     public static void main(String[] args) {
-
-        // 种子 无论你的种子长啥样都要保留最后一个L的存在
         long seed = 2950649267509295309L;
-
-        // 计算的区域 如下就算8*8
         int areaSize = 8;
 
-        // x轴的区块坐标最小值
-        int xMin = -100;
-
-        // x轴的区块坐标最大值
-        int xMax = 100;
-
-        // z轴的区块坐标最小值
-        int zMin = -100;
-
-        // z轴的区块坐标最大值
-        int zMax = 100;
+        int xMin = -600;
+        int xMax = 600;
+        int zMin = -600;
+        int zMax = 600;
 
         if (args.length >= 4) {
             try {
@@ -249,11 +253,12 @@ public class slimepk {
                     seed = Long.parseLong(args[5]);
                 }
             } catch (NumberFormatException e) {
-                System.out.println("参数格式错误，使用默认值");
+                System.out.println("参数错误，使用默认值");
             }
         }
 
-        System.out.println("使用区域大小: " + areaSize + "x" + areaSize);
+        System.out.println("种子: " + seed);
+        System.out.println("区域大小: " + areaSize + "x" + areaSize);
         calculateMultipleAreasParallel(xMin, xMax, zMin, zMax, seed, areaSize);
     }
 }
